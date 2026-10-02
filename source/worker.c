@@ -238,6 +238,7 @@ static void do_art(void);
 static void do_recents(void);
 static void do_playlists(void);
 static void do_albums(void);
+static void do_devices(void);
 static bool do_tracks(void);
 static void do_track_search(bool higher_priority_work);
 static void do_search_validate(void);
