@@ -729,6 +729,8 @@ static void tracks_edit_search(void)
 	searchhistory_flush(SEARCHHISTORY_TRACKS);
 }
 
+static void tracks_open(const collection_item *item);
+
 static void start_global_search(void)
 {
 	SwkbdState keyboard;
