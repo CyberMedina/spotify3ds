@@ -320,6 +320,25 @@ player_result player_play_context_item(const char *context_uri,
 	return pr;
 }
 
+player_result player_play_track(const char *track_uri, char *err, int errlen)
+{
+	if (!track_uri || !track_uri[0]) {
+		snprintf(err, errlen, "no track uri");
+		return PLAYER_ERROR;
+	}
+
+	char body[256];
+	snprintf(body, sizeof body, "{\"uris\":[\"%s\"],\"position_ms\":0}",
+	         track_uri);
+
+	http_response r;
+	const player_result pr = api_call("PUT", "/v1/me/player/play",
+	                                  "application/json", body, &r, err, errlen);
+	if (pr == PLAYER_OK || r.body)
+		http_free(&r);
+	return pr;
+}
+
 player_result player_repeat(repeat_mode mode, char *err, int errlen)
 {
 	const char *s = mode == REPEAT_TRACK     ? "track"

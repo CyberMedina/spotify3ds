@@ -93,15 +93,17 @@ under **Apps**.
 - Library:
   - `A` start the selected collection, then play/pause
   - `X` open its tracks
+  - `Y` or tap `Search songs... (Y)` in the header to search the entire Spotify catalog globally.
   - `ZL/ZR` jump between recently played / playlists / albums
   - D-pad up/down to select a collection
   - Tap a row's play icon to start it, or its right chevron to open its tracks.
-  - Tap magnifying glass in the header to search for a playlist/album in your library.
+  - Tap magnifying glass in the header to filter playlists/albums in your local library.
   - Press and hold the magnifying glass to view previous searches and search them again
-- Tracks:
-  - `A` play/pause the selected track
+- Tracks / Global Search:
+  - `A` play/pause the selected track (plays directly on active Spotify Connect device when searching globally)
   - `X` queue the selected track
-  - `ZL/ZR` see the previous / next page of tracks on big playlists. Go back from the start of playlist to go to its last page of tracks
+  - `Y` or tap search in the header to search for another song on Spotify
+  - `ZL/ZR` see the previous / next page of tracks (50 per page)
   - D-pad up/down to select a track
   - Tap a row's play icon to start it, or its right queue icon to queue it.
   - Tap magnifying glass in the header to search the whole album or playlist by track name, artist, or album.

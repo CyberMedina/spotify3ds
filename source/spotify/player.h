@@ -75,6 +75,9 @@ player_result player_play_context_item(const char *context_uri,
                                        const char *item_uri, char *err,
                                        int errlen);
 
+/* Play a specific track URI (e.g. from global search) directly on the active device. */
+player_result player_play_track(const char *track_uri, char *err, int errlen);
+
 #define MAX_DEVICES 16
 
 typedef struct {

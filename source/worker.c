@@ -487,11 +487,15 @@ static void do_cmd(const queued_cmd *q)
 				pr = player_play_context_at(q->context_uri, q->position, err,
 				                            sizeof err);
 			break;
+		case CMD_PLAY_TRACK:
+			pr = player_play_track(q->item_uri, err, sizeof err);
+			break;
 		default: return;
 	}
 	if (pr == PLAYER_OK &&
 	    (q->cmd == CMD_NEXT || q->cmd == CMD_PREV ||
-	     q->cmd == CMD_PLAY_CONTEXT || q->cmd == CMD_TRANSFER)) {
+	     q->cmd == CMD_PLAY_CONTEXT || q->cmd == CMD_PLAY_TRACK ||
+	     q->cmd == CMD_TRANSFER)) {
 		LightLock_Lock(&s_lock);
 		s_track_change_pending = true;
 		s_poll_requested = true;
@@ -711,7 +715,7 @@ static void worker_main(void *arg)
 
 			settle_track = settle_track || cmd.cmd == CMD_NEXT ||
 			               cmd.cmd == CMD_PREV || cmd.cmd == CMD_PLAY_CONTEXT ||
-			               cmd.cmd == CMD_TRANSFER;
+			               cmd.cmd == CMD_PLAY_TRACK || cmd.cmd == CMD_TRANSFER;
 			do_cmd(&cmd);
 			did_work = true;
 		}
@@ -2469,6 +2473,18 @@ bool worker_play_context_item(const char *context_uri, const char *item_uri)
 	q.cmd = CMD_PLAY_CONTEXT;
 	snprintf(q.context_uri, sizeof q.context_uri, "%s", context_uri);
 	snprintf(q.item_uri, sizeof q.item_uri, "%s", item_uri);
+	return enqueue(&q);
+}
+
+bool worker_play_track(const char *track_uri)
+{
+	if (!track_uri || !track_uri[0])
+		return false;
+	ensure_lock();
+	queued_cmd q;
+	memset(&q, 0, sizeof q);
+	q.cmd = CMD_PLAY_TRACK;
+	snprintf(q.item_uri, sizeof q.item_uri, "%s", track_uri);
 	return enqueue(&q);
 }
 

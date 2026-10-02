@@ -729,6 +729,35 @@ static void tracks_edit_search(void)
 	searchhistory_flush(SEARCHHISTORY_TRACKS);
 }
 
+static void start_global_search(void)
+{
+	SwkbdState keyboard;
+	char query[128] = "";
+	swkbdInit(&keyboard, SWKBD_TYPE_NORMAL, 2, (int)sizeof query - 1);
+	swkbdSetHintText(&keyboard, "Search songs on Spotify");
+	swkbdSetButton(&keyboard, SWKBD_BUTTON_LEFT, "Cancel", false);
+	swkbdSetButton(&keyboard, SWKBD_BUTTON_RIGHT, "Search", true);
+	if (swkbdInputText(&keyboard, query, sizeof query) != SWKBD_BUTTON_RIGHT)
+		return;
+
+	char *start = query;
+	while (*start && isspace((unsigned char)*start))
+		start++;
+	char *end = start + strlen(start);
+	while (end > start && isspace((unsigned char)end[-1]))
+		*--end = '\0';
+	if (!start[0])
+		return;
+
+	collection_item item;
+	memset(&item, 0, sizeof item);
+	item.kind = COLLECTION_PLAYLIST;
+	snprintf(item.context_uri, sizeof item.context_uri, "spotify:search:%s", start);
+	snprintf(item.name, sizeof item.name, "Search: %s", start);
+	snprintf(item.subtitle, sizeof item.subtitle, "Spotify Search");
+	tracks_open(&item);
+}
+
 static void tracks_open(const collection_item *item)
 {
 	if (!item)
@@ -921,7 +950,12 @@ static void activate_track(const track_item *item,
 		tl_log("track: play context=%s item=%s position=%d name=%s",
 		       g_tracks_collection.context_uri, item->uri, item->source_index,
 		       item->name);
-		if (worker_play_context_item(g_tracks_collection.context_uri, item->uri)) {
+		bool ok = false;
+		if (strncmp(g_tracks_collection.context_uri, "spotify:search:", 15) == 0)
+			ok = worker_play_track(item->uri);
+		else
+			ok = worker_play_context_item(g_tracks_collection.context_uri, item->uri);
+		if (ok) {
 			target_set(&g_opt_track, item->uri);
 			opt_set(&g_opt_play, 1);
 		}
@@ -1060,9 +1094,8 @@ int main(int argc, char **argv)
 		if ((keys_held & (KEY_L | KEY_START)) == (KEY_L | KEY_START) &&
 		    (keys_down & (KEY_L | KEY_START)))
 			break;
-		/* Y hides the cover. The top screen has no touch digitizer, so the
-		 * art-off layout needs a physical button. */
-		if (keys_down & KEY_Y)
+		/* Y hides the cover in player view. */
+		if ((keys_down & KEY_Y) && g_view == VIEW_PLAYER)
 			g_art_hidden = !g_art_hidden;
 
 		/* Exercise the art-hidden layout headlessly too, so 2A cannot rot
@@ -1737,7 +1770,9 @@ int main(int argc, char **argv)
 			    list_chevron_item(touch.clicked, rl, pl, al);
 			const collection_item *direct_play =
 			    list_play_item(touch.clicked, rl, pl, al);
-			if (touch.long_pressed == LIST_BTN_FIND) {
+			if ((keys_down & KEY_Y) || touch.clicked == LIST_BTN_GLOBAL_SEARCH) {
+				start_global_search();
+			} else if (touch.long_pressed == LIST_BTN_FIND) {
 				/* Nothing to recall yet: fall through to the keyboard rather
 				 * than opening a panel whose only content is a way out of
 				 * itself. */
@@ -1828,12 +1863,17 @@ int main(int argc, char **argv)
 					g_tracks_cursor = -1;
 				}
 			} else if (touch.long_pressed == TRACK_BTN_SEARCH) {
-				if (searchhistory_count(SEARCHHISTORY_TRACKS) > 0)
+				if (strncmp(g_tracks_collection.context_uri, "spotify:search:", 15) == 0) {
+					start_global_search();
+				} else if (searchhistory_count(SEARCHHISTORY_TRACKS) > 0)
 					g_search_popover = true;
 				else
 					tracks_edit_search();
-			} else if (touch.clicked == TRACK_BTN_SEARCH) {
-				tracks_edit_search();
+			} else if (touch.clicked == TRACK_BTN_SEARCH || (keys_down & KEY_Y)) {
+				if (strncmp(g_tracks_collection.context_uri, "spotify:search:", 15) == 0)
+					start_global_search();
+				else
+					tracks_edit_search();
 			} else if (touch.clicked == TRACK_BTN_CLEAR_SEARCH) {
 				/* B also leaves the collection, so the X is the only
 				 * unambiguous way back to the full track list. The buffered

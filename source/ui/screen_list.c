@@ -549,12 +549,25 @@ void screen_list_draw(const screen_list_args *a)
 	C2D_DrawTriangle(ax, ay, back_clr, ax + 7.0f, ay - 5.0f, back_clr,
 	                 ax + 7.0f, ay + 5.0f, back_clr, 0.0f);
 
-	/* The search disc starts at x=292, so the title has the header to itself
-	 * up to a small gap before it. */
+	/* Title */
 	ui_text(a->buf, "Library", ax + 17.0f,
 	        ui_baseline(LIST_HEADER_H / 2.0f - ui_px(TY_ROW_NAME) / 2.0f,
 	                    TY_ROW_NAME),
-	        TY_ROW_NAME, 264.0f - (ax + 17.0f), CLR_NAME);
+	        TY_ROW_NAME, 60.0f, CLR_NAME);
+
+	/* Global search button pill */
+	const bool gsearch_pressed = a->pressed_id == LIST_BTN_GLOBAL_SEARCH;
+	const float gsx = 96.0f, gsy = 4.0f, gsw = 178.0f, gsh = 22.0f;
+	const u32 pill_bg = gsearch_pressed ? CLR_ROW_PRESS : C2D_Color32(0x22, 0x22, 0x22, 0xFF);
+	C2D_DrawRectSolid(gsx, gsy, 0.0f, gsw, gsh, pill_bg);
+	const u32 icon_clr = gsearch_pressed ? CLR_GREEN_PRESS : CLR_GREEN;
+	ui_disc(gsx + 11.0f, gsy + 11.0f, 4.0f, icon_clr);
+	ui_disc(gsx + 11.0f, gsy + 11.0f, 2.3f, pill_bg);
+	C2D_DrawLine(gsx + 13.5f, gsy + 13.5f, icon_clr, gsx + 17.5f, gsy + 17.5f, icon_clr, 1.8f, 0.0f);
+	ui_text(a->buf, "Search songs... (Y)", gsx + 23.0f,
+	        ui_baseline(gsy + (gsh - ui_px(TY_MICRO)) / 2.0f, TY_MICRO),
+	        TY_MICRO, gsw - 27.0f, gsearch_pressed ? CLR_GREEN_PRESS : CLR_SUB);
+	tb_add(a->tb, gsx, 0.0f, gsw, LIST_HEADER_H, LIST_BTN_GLOBAL_SEARCH);
 
 	/* Same affordance as the Tracks header, so one green disc means "search"
 	 * everywhere in the app. */

@@ -26,6 +26,7 @@ typedef enum {
 	CMD_SHUFFLE,
 	CMD_REPEAT,
 	CMD_PLAY_CONTEXT,
+	CMD_PLAY_TRACK,
 	CMD_QUEUE_ITEM,
 	CMD_VOLUME,
 	CMD_TRANSFER,
@@ -129,6 +130,9 @@ bool worker_play_context_at(const char *context_uri, int position);
 
 /* Start the context at the selected Spotify track URI. */
 bool worker_play_context_item(const char *context_uri, const char *item_uri);
+
+/* Play a single track directly (e.g. from global Spotify search). */
+bool worker_play_track(const char *track_uri);
 
 /* Add one Spotify track to the active device's playback queue. */
 bool worker_queue_item(const char *item_uri);

@@ -196,6 +196,149 @@ static player_result fetch_network(const collection_item *collection, int offset
 	return PLAYER_OK;
 }
 
+static void encode_query_param(const char *input, char *out, size_t outlen)
+{
+	static const char hex[] = "0123456789ABCDEF";
+	if (!input)
+		input = "";
+	size_t at = 0;
+	for (size_t i = 0; input[i] && at + 4 < outlen; i++) {
+		const unsigned char c = (unsigned char)input[i];
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		    (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' ||
+		    c == '~') {
+			out[at++] = (char)c;
+		} else if (c == ' ') {
+			out[at++] = '+';
+		} else {
+			out[at++] = '%';
+			out[at++] = hex[c >> 4];
+			out[at++] = hex[c & 15];
+		}
+	}
+	out[at] = '\0';
+}
+
+static player_result fetch_search_network(const collection_item *collection,
+                                          const char *query, int offset,
+                                          track_page *out, char *err, int errlen)
+{
+	const char *token = auth_token(err, errlen);
+	if (!token)
+		return PLAYER_AUTH_FAILED;
+
+	char q_enc[256];
+	encode_query_param(query, q_enc, sizeof q_enc);
+
+	char path[640];
+	snprintf(path, sizeof path,
+	         "/v1/search?q=%s&type=track&market=from_token&limit=%d&offset=%d",
+	         q_enc, TRACK_PAGE_MAX, offset);
+
+	http_response r;
+	const u64 t0 = osGetTime();
+	if (!http_request(API_HOST, "GET", path, token, NULL, NULL, &r, err, errlen))
+		return PLAYER_ERROR;
+
+	if (r.status != 200 || !r.body || !r.body_len) {
+		char wait[32];
+		if (r.status == 429 && http_retry_after_str(r.retry_after, wait, sizeof wait))
+			snprintf(err, errlen, "search http %d - retry after %s", r.status, wait);
+		else
+			snprintf(err, errlen, "search http %d", r.status);
+		http_free(&r);
+		return PLAYER_ERROR;
+	}
+
+	int needed = 0;
+	json_doc *d = json_doc_parse(r.body, r.body_len, &needed);
+	if (!d) {
+		snprintf(err, errlen, "search parse failed (%u bytes, tokens %d)",
+		         (unsigned)r.body_len, needed);
+		http_free(&r);
+		return PLAYER_ERROR;
+	}
+
+	memset(out, 0, sizeof *out);
+	out->collection = *collection;
+	out->offset = offset;
+	long value = 0;
+	if (json_doc_int(d, "tracks.offset", &value))
+		out->offset = (int)value;
+	if (json_doc_int(d, "tracks.total", &value))
+		out->total = (int)value;
+
+	int count = json_doc_array_size(d, "tracks.items");
+	if (count < 0)
+		count = 0;
+	if (count > TRACK_PAGE_MAX)
+		count = TRACK_PAGE_MAX;
+	out->count = count;
+
+	for (int i = 0; i < count; i++) {
+		track_item *it = &out->items[i];
+		it->source_index = out->offset + i;
+		it->kind = TRACK_ITEM_TRACK;
+
+		char base[64];
+		snprintf(base, sizeof base, "tracks.items[%d]", i);
+
+		if (json_doc_is_null(d, base)) {
+			snprintf(it->name, sizeof it->name, "Unavailable item");
+			it->kind = TRACK_ITEM_UNAVAILABLE;
+			continue;
+		}
+
+		char field[192];
+		snprintf(field, sizeof field, "%s.name", base);
+		if (!json_doc_str(d, field, it->name, sizeof it->name))
+			snprintf(it->name, sizeof it->name, "Unavailable item");
+
+		snprintf(field, sizeof field, "%s.uri", base);
+		json_doc_str(d, field, it->uri, sizeof it->uri);
+
+		snprintf(field, sizeof field, "%s.duration_ms", base);
+		if (json_doc_int(d, field, &value))
+			it->duration_ms = value;
+
+		snprintf(field, sizeof field, "%s.is_playable", base);
+		bool flag = false;
+		if (json_doc_bool(d, field, &flag))
+			it->playable = flag;
+		else
+			it->playable = true;
+
+		snprintf(field, sizeof field, "%s.explicit", base);
+		if (json_doc_bool(d, field, &flag))
+			it->explicit_content = flag;
+
+		snprintf(field, sizeof field, "%s.is_local", base);
+		if (json_doc_bool(d, field, &flag))
+			it->is_local = flag;
+
+		snprintf(field, sizeof field, "%s.album.name", base);
+		json_doc_str(d, field, it->album, sizeof it->album);
+
+		snprintf(field, sizeof field, "%s.album.images[2].url", base);
+		if (!json_doc_str(d, field, it->art_url, sizeof it->art_url)) {
+			snprintf(field, sizeof field, "%s.album.images[0].url", base);
+			json_doc_str(d, field, it->art_url, sizeof it->art_url);
+		}
+
+		join_artists(d, base, it->artist, sizeof it->artist);
+
+		if (!it->uri[0] || it->is_local)
+			it->playable = false;
+	}
+
+	json_doc_free(d);
+	tl_timing("search offset=%d count=%d total=%d bytes=%u took=%llums",
+	          out->offset, out->count, out->total, (unsigned)r.body_len,
+	          (unsigned long long)(osGetTime() - t0));
+	http_free(&r);
+	return PLAYER_OK;
+}
+
 player_result tracks_fetch_page(const collection_item *collection, int offset,
 	                            track_page *out, char *err, int errlen)
 {
@@ -206,5 +349,9 @@ player_result tracks_fetch_page(const collection_item *collection, int offset,
 	if (offset < 0)
 		offset = 0;
 	offset = (offset / TRACK_PAGE_MAX) * TRACK_PAGE_MAX;
+	if (strncmp(collection->context_uri, "spotify:search:", 15) == 0) {
+		const char *query = collection->context_uri + 15;
+		return fetch_search_network(collection, query, offset, out, err, errlen);
+	}
 	return fetch_network(collection, offset, out, err, errlen);
 }
