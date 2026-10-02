@@ -75,4 +75,29 @@ player_result player_play_context_item(const char *context_uri,
                                        const char *item_uri, char *err,
                                        int errlen);
 
+#define MAX_DEVICES 16
+
+typedef struct {
+	char id[128];
+	char name[64];
+	char type[32];
+	bool is_active;
+	bool is_restricted;
+	bool supports_volume;
+	int  volume_percent;
+} spotify_device;
+
+typedef struct {
+	int count;
+	spotify_device items[MAX_DEVICES];
+} spotify_device_list;
+
+/* Query available Spotify Connect playback devices (GET /v1/me/player/devices). */
+player_result player_get_devices(spotify_device_list *out, char *err, int errlen);
+
+/* Transfer playback to target device (PUT /v1/me/player). If play is true, starts/resumes playback. */
+player_result player_transfer_playback(const char *device_id, bool play,
+                                       char *err, int errlen);
+
 const char *player_result_str(player_result r);
+

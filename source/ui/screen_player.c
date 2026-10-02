@@ -385,41 +385,74 @@ static void fmt_time(long ms, char *out, int outlen)
 
 static void draw_header(const screen_player_args *a)
 {
-	const bool pressed = a->pressed_id == BTN_LYRICS;
-	const u32 action_clr = pressed ? CLR_GREEN : CLR_IDLE;
+	const bool has_track = a->track && a->track[0];
+	const bool lyrics_pressed = a->pressed_id == BTN_LYRICS;
+	const bool dev_pressed = a->pressed_id == BTN_DEVICES;
+	const u32 lyrics_clr = lyrics_pressed ? CLR_GREEN : CLR_IDLE;
+	const u32 dev_clr = dev_pressed ? CLR_GREEN : CLR_IDLE;
+
 	u8 ar, ag, ab;
 	accent_of(a, &ar, &ag, &ab);
 	const u32 header = C2D_Color32(scaled_component(ar, 0.42f, 3),
 	                               scaled_component(ag, 0.42f, 3),
 	                               scaled_component(ab, 0.42f, 3), 0xFF);
-	const float gutter_scale = pressed ? 0.54f : 0.30f;
-	const int gutter_floor = pressed ? 5 : 2;
+	const float gutter_scale = (lyrics_pressed || (!has_track && dev_pressed)) ? 0.54f : 0.30f;
+	const int gutter_floor = (lyrics_pressed || (!has_track && dev_pressed)) ? 5 : 2;
 	const u32 gutter = C2D_Color32(
 	    scaled_component(ar, gutter_scale, gutter_floor),
 	    scaled_component(ag, gutter_scale, gutter_floor),
 	    scaled_component(ab, gutter_scale, gutter_floor), 0xFF);
+
 	C2D_DrawRectSolid(0.0f, 0.0f, 0.0f, BOT_W, HEADER_H, header);
 	C2D_DrawRectSolid(HEADER_GUTTER_X, 0.0f, 0.0f, HEADER_GUTTER_W, HEADER_H,
 	                  gutter);
 
-	const float lyrics_w = ui_text_width(a->buf, "LYRICS", TY_MICRO);
-	const float lyrics_x = HEADER_GUTTER_X - 8.0f - lyrics_w;
-	const char *title = a->track && a->track[0] ? a->track : "Nothing playing";
-	ui_text(a->buf, title, 16.0f,
-	        ui_baseline((HEADER_H - ui_px(TY_ROW_NAME)) / 2.0f, TY_ROW_NAME),
-	        TY_ROW_NAME, lyrics_x - 26.0f, CLR_WHITE);
-	ui_text_tracked(a->buf, "LYRICS", lyrics_x,
-	                ui_baseline((HEADER_H - ui_px(TY_MICRO)) / 2.0f, TY_MICRO),
-	                TY_MICRO, 0.45f, action_clr);
-
 	const float cx = HEADER_GUTTER_X + 18.0f;
 	const float cy = HEADER_H / 2.0f;
-	C2D_DrawLine(cx - 5.0f, cy - 7.0f, action_clr, cx + 2.0f, cy,
-	             action_clr, 3.0f, 0.0f);
-	C2D_DrawLine(cx + 2.0f, cy, action_clr, cx - 5.0f, cy + 7.0f,
-	             action_clr, 3.0f, 0.0f);
-	tb_add(a->tb, HEADER_ACTION_X, 0.0f, BOT_W - HEADER_ACTION_X, HEADER_H,
-	       BTN_LYRICS);
+
+	if (has_track) {
+		const float lyrics_w = ui_text_width(a->buf, "LYRICS", TY_MICRO);
+		const float lyrics_x = HEADER_GUTTER_X - 8.0f - lyrics_w;
+
+		const float dev_w = ui_text_width(a->buf, "DEVICES", TY_MICRO);
+		const float dev_x = lyrics_x - 18.0f - dev_w;
+
+		ui_text(a->buf, a->track, 16.0f,
+		        ui_baseline((HEADER_H - ui_px(TY_ROW_NAME)) / 2.0f, TY_ROW_NAME),
+		        TY_ROW_NAME, dev_x - 26.0f, CLR_WHITE);
+
+		ui_text_tracked(a->buf, "DEVICES", dev_x,
+		                ui_baseline((HEADER_H - ui_px(TY_MICRO)) / 2.0f, TY_MICRO),
+		                TY_MICRO, 0.45f, dev_clr);
+		tb_add(a->tb, dev_x - 8.0f, 0.0f, dev_w + 16.0f, HEADER_H, BTN_DEVICES);
+
+		ui_text_tracked(a->buf, "LYRICS", lyrics_x,
+		                ui_baseline((HEADER_H - ui_px(TY_MICRO)) / 2.0f, TY_MICRO),
+		                TY_MICRO, 0.45f, lyrics_clr);
+		C2D_DrawLine(cx - 5.0f, cy - 7.0f, lyrics_clr, cx + 2.0f, cy,
+		             lyrics_clr, 3.0f, 0.0f);
+		C2D_DrawLine(cx + 2.0f, cy, lyrics_clr, cx - 5.0f, cy + 7.0f,
+		             lyrics_clr, 3.0f, 0.0f);
+		tb_add(a->tb, HEADER_ACTION_X, 0.0f, BOT_W - HEADER_ACTION_X, HEADER_H,
+		       BTN_LYRICS);
+	} else {
+		const float dev_w = ui_text_width(a->buf, "DEVICES", TY_MICRO);
+		const float dev_x = HEADER_GUTTER_X - 8.0f - dev_w;
+
+		ui_text(a->buf, "Nothing playing", 16.0f,
+		        ui_baseline((HEADER_H - ui_px(TY_ROW_NAME)) / 2.0f, TY_ROW_NAME),
+		        TY_ROW_NAME, dev_x - 26.0f, CLR_WHITE);
+
+		ui_text_tracked(a->buf, "DEVICES", dev_x,
+		                ui_baseline((HEADER_H - ui_px(TY_MICRO)) / 2.0f, TY_MICRO),
+		                TY_MICRO, 0.45f, dev_clr);
+		C2D_DrawLine(cx - 5.0f, cy - 7.0f, dev_clr, cx + 2.0f, cy,
+		             dev_clr, 3.0f, 0.0f);
+		C2D_DrawLine(cx + 2.0f, cy, dev_clr, cx - 5.0f, cy + 7.0f,
+		             dev_clr, 3.0f, 0.0f);
+		tb_add(a->tb, HEADER_ACTION_X, 0.0f, BOT_W - HEADER_ACTION_X, HEADER_H,
+		       BTN_DEVICES);
+	}
 }
 
 void screen_player_draw(const screen_player_args *a)

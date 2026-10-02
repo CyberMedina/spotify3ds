@@ -83,8 +83,13 @@ under **Apps**.
   - `A` play/pause
   - `X` to go to Library
   - `Y` show/hide cover art
+  - `SELECT` or tap `DEVICES` in the header to open the Spotify Connect device selector.
   - Tap `LYRICS` in the header to open lyrics for the current song.
   - Tap a Recently Played tile to open its tracks; long press it to start playing it immediately.
+- Devices:
+  - `A` or tap a device to transfer playback and start music on that device.
+  - `Y` or tap `REFRESH` to rescan available devices.
+  - `B` to return to Player.
 - Library:
   - `A` start the selected collection, then play/pause
   - `X` open its tracks

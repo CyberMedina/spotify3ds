@@ -28,6 +28,7 @@ typedef enum {
 	CMD_PLAY_CONTEXT,
 	CMD_QUEUE_ITEM,
 	CMD_VOLUME,
+	CMD_TRANSFER,
 } worker_cmd;
 
 typedef struct {
@@ -98,6 +99,25 @@ void worker_request_playlists(void);
  * The current user's saved album library, fetched once at startup. */
 int  worker_get_albums(album_list *out);
 void worker_request_albums(void);
+
+/* --- devices -----------------------------------------------------------
+ * Spotify Connect devices available to the account. */
+typedef enum {
+	DEVICES_IDLE = 0,
+	DEVICES_LOADING,
+	DEVICES_READY,
+	DEVICES_ERROR,
+} worker_devices_state;
+
+typedef struct {
+	worker_devices_state state;
+	spotify_device_list  devices;
+	char                 error[128];
+} worker_devices_snapshot;
+
+void worker_request_devices(void);
+void worker_get_devices(worker_devices_snapshot *out);
+bool worker_transfer_device(const char *device_id);
 
 /* Start playback from a recents entry. The uri is copied, so the caller's
  * buffer need not outlive the call. */

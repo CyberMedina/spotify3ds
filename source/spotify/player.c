@@ -329,3 +329,95 @@ player_result player_repeat(repeat_mode mode, char *err, int errlen)
 	snprintf(path, sizeof path, "/v1/me/player/repeat?state=%s", s);
 	return simple_cmd("PUT", path, err, errlen);
 }
+
+player_result player_get_devices(spotify_device_list *out, char *err, int errlen)
+{
+	if (!out)
+		return PLAYER_ERROR;
+	memset(out, 0, sizeof *out);
+
+	http_response r;
+	player_result pr =
+	    api_call("GET", "/v1/me/player/devices", NULL, NULL, &r, err, errlen);
+	if (pr != PLAYER_OK) {
+		if (pr == PLAYER_ERROR)
+			snprintf(err, errlen, "devices fetch failed");
+		return pr;
+	}
+
+	if (!r.body || r.body_len == 0) {
+		http_free(&r);
+		return PLAYER_OK;
+	}
+
+	int needed = 0;
+	json_doc *doc = json_doc_parse(r.body, r.body_len, &needed);
+	if (!doc) {
+		tl_log("devices: JSON parse failed (needed %d tokens)", needed);
+		http_free(&r);
+		snprintf(err, errlen, "devices JSON parse failed");
+		return PLAYER_ERROR;
+	}
+
+	int count = json_doc_array_size(doc, "devices");
+	if (count < 0)
+		count = 0;
+	if (count > MAX_DEVICES)
+		count = MAX_DEVICES;
+
+	out->count = count;
+	for (int i = 0; i < count; i++) {
+		char path[64];
+		spotify_device *dev = &out->items[i];
+
+		snprintf(path, sizeof path, "devices[%d].id", i);
+		json_doc_str(doc, path, dev->id, sizeof dev->id);
+
+		snprintf(path, sizeof path, "devices[%d].name", i);
+		json_doc_str(doc, path, dev->name, sizeof dev->name);
+
+		snprintf(path, sizeof path, "devices[%d].type", i);
+		json_doc_str(doc, path, dev->type, sizeof dev->type);
+
+		snprintf(path, sizeof path, "devices[%d].is_active", i);
+		json_doc_bool(doc, path, &dev->is_active);
+
+		snprintf(path, sizeof path, "devices[%d].is_restricted", i);
+		json_doc_bool(doc, path, &dev->is_restricted);
+
+		snprintf(path, sizeof path, "devices[%d].supports_volume", i);
+		json_doc_bool(doc, path, &dev->supports_volume);
+
+		long vol = 0;
+		snprintf(path, sizeof path, "devices[%d].volume_percent", i);
+		if (json_doc_int(doc, path, &vol))
+			dev->volume_percent = (int)vol;
+		else
+			dev->volume_percent = -1;
+	}
+
+	json_doc_free(doc);
+	http_free(&r);
+	return PLAYER_OK;
+}
+
+player_result player_transfer_playback(const char *device_id, bool play,
+                                       char *err, int errlen)
+{
+	if (!device_id || !device_id[0]) {
+		snprintf(err, errlen, "missing device id");
+		return PLAYER_ERROR;
+	}
+
+	char body[256];
+	snprintf(body, sizeof body, "{\"device_ids\":[\"%s\"],\"play\":%s}",
+	         device_id, play ? "true" : "false");
+
+	http_response r;
+	player_result pr = api_call("PUT", "/v1/me/player", "application/json",
+	                            body, &r, err, errlen);
+	if (pr == PLAYER_OK || r.body)
+		http_free(&r);
+	return pr;
+}
+

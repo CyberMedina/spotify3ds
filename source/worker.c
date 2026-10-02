@@ -170,6 +170,8 @@ static playlist_list s_playlists;
 static bool          s_playlists_wanted = true; /* fetch once at startup */
 static album_list    s_albums;
 static bool          s_albums_wanted = true; /* fetch once at startup */
+static worker_devices_snapshot s_devices_snapshot;
+static bool                    s_devices_wanted;
 #define RECENTS_MIN_INTERVAL_MS 30000
 #define RECENTS_REFRESH_MS      (5 * 60 * 1000)
 
@@ -473,6 +475,9 @@ static void do_cmd(const queued_cmd *q)
 		case CMD_VOLUME:
 			pr = player_set_volume((int)q->arg, q->device_id, err, sizeof err);
 			break;
+		case CMD_TRANSFER:
+			pr = player_transfer_playback(q->device_id, true, err, sizeof err);
+			break;
 		case CMD_PLAY_CONTEXT:
 			if (q->item_uri[0])
 				pr = player_play_context_item(q->context_uri, q->item_uri, err,
@@ -485,9 +490,11 @@ static void do_cmd(const queued_cmd *q)
 	}
 	if (pr == PLAYER_OK &&
 	    (q->cmd == CMD_NEXT || q->cmd == CMD_PREV ||
-	     q->cmd == CMD_PLAY_CONTEXT)) {
+	     q->cmd == CMD_PLAY_CONTEXT || q->cmd == CMD_TRANSFER)) {
 		LightLock_Lock(&s_lock);
 		s_track_change_pending = true;
+		s_poll_requested = true;
+		s_devices_wanted = true;
 		LightLock_Unlock(&s_lock);
 	}
 
@@ -702,7 +709,8 @@ static void worker_main(void *arg)
 			LightLock_Unlock(&s_lock);
 
 			settle_track = settle_track || cmd.cmd == CMD_NEXT ||
-			               cmd.cmd == CMD_PREV || cmd.cmd == CMD_PLAY_CONTEXT;
+			               cmd.cmd == CMD_PREV || cmd.cmd == CMD_PLAY_CONTEXT ||
+			               cmd.cmd == CMD_TRANSFER;
 			do_cmd(&cmd);
 			did_work = true;
 		}
@@ -784,6 +792,7 @@ static void worker_main(void *arg)
 		do_playlists();
 		do_albums();
 		do_recents();
+		do_devices();
 		do_current_metadata();
 
 		/* Thumbnails last of all: they are decoration, and a shelf full of
@@ -1273,6 +1282,77 @@ void worker_request_playlists(void)
 	LightLock_Lock(&s_lock);
 	s_playlists_wanted = true;
 	LightLock_Unlock(&s_lock);
+}
+
+void worker_request_devices(void)
+{
+	ensure_lock();
+	LightLock_Lock(&s_lock);
+	s_devices_wanted = true;
+	s_devices_snapshot.state = DEVICES_LOADING;
+	LightLock_Unlock(&s_lock);
+}
+
+void worker_get_devices(worker_devices_snapshot *out)
+{
+	if (!out)
+		return;
+	ensure_lock();
+	LightLock_Lock(&s_lock);
+	*out = s_devices_snapshot;
+	LightLock_Unlock(&s_lock);
+}
+
+bool worker_transfer_device(const char *device_id)
+{
+	if (!device_id || !device_id[0])
+		return false;
+	ensure_lock();
+	LightLock_Lock(&s_lock);
+	bool full = ((s_qtail + 1) % CMD_QUEUE) == s_qhead;
+	if (!full) {
+		queued_cmd *q = &s_queue[s_qtail];
+		memset(q, 0, sizeof *q);
+		q->cmd = CMD_TRANSFER;
+		snprintf(q->device_id, sizeof q->device_id, "%s", device_id);
+		s_qtail = (s_qtail + 1) % CMD_QUEUE;
+	}
+	LightLock_Unlock(&s_lock);
+	return !full;
+}
+
+static void do_devices(void)
+{
+	LightLock_Lock(&s_lock);
+	const bool want = s_devices_wanted;
+	LightLock_Unlock(&s_lock);
+
+	if (!want)
+		return;
+
+	spotify_device_list *fresh = malloc(sizeof *fresh);
+	if (!fresh)
+		return;
+
+	char err[256];
+	const player_result pr = player_get_devices(fresh, err, sizeof err);
+
+	LightLock_Lock(&s_lock);
+	s_devices_wanted = false;
+	if (pr == PLAYER_OK) {
+		s_devices_snapshot.state = DEVICES_READY;
+		s_devices_snapshot.devices = *fresh;
+		s_devices_snapshot.error[0] = '\0';
+		tl_log("devices: %d available", fresh->count);
+	} else {
+		s_devices_snapshot.state = DEVICES_ERROR;
+		snprintf(s_devices_snapshot.error, sizeof s_devices_snapshot.error,
+		         "%s", err[0] ? err : player_result_str(pr));
+		tl_log("devices error: %s", s_devices_snapshot.error);
+	}
+	LightLock_Unlock(&s_lock);
+
+	free(fresh);
 }
 
 /* Runs on the worker thread.

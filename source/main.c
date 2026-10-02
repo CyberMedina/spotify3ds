@@ -19,6 +19,7 @@
 #include "ui/search_popover.h"
 #include "ui/screen_lyrics.h"
 #include "ui/screen_player.h"
+#include "ui/screen_devices.h"
 #include "ui/screen_setup.h"
 #include "ui/screen_tracks.h"
 #include "ui/screen_top.h"
@@ -107,10 +108,12 @@ typedef enum {
 	VIEW_LIST,
 	VIEW_TRACKS,
 	VIEW_LYRICS,
+	VIEW_DEVICES,
 	VIEW_SETUP,
 	VIEW_SETUP_COMPLETE
 } bottom_view;
 static bottom_view g_view;
+static int         g_devices_cursor = -1;
 static char        g_setup_message[192];
 static bottom_view          g_lyrics_return_view = VIEW_PLAYER;
 static worker_lyrics_status g_lyrics_status;
@@ -1510,7 +1513,59 @@ int main(int argc, char **argv)
 				opt_set(&g_opt_play, !playing);
 				worker_post(playing ? CMD_PAUSE : CMD_PLAY, 0);
 			}
+			if (keys_down & KEY_SELECT) {
+				g_view = VIEW_DEVICES;
+				g_devices_cursor = -1;
+				worker_request_devices();
+			}
 		}
+
+		/* --- devices view input ---------------------------------------- */
+		if (input_view == VIEW_DEVICES) {
+			if ((keys_down & KEY_B) || touch.clicked == DEVICE_BTN_BACK) {
+				g_view = VIEW_PLAYER;
+				g_devices_cursor = -1;
+			} else if ((keys_down & KEY_Y) || touch.clicked == DEVICE_BTN_REFRESH) {
+				worker_request_devices();
+			} else {
+				worker_devices_snapshot dev_snap;
+				worker_get_devices(&dev_snap);
+				const int count = dev_snap.devices.count;
+
+				const u32 nav = keys_repeat & (KEY_UP | KEY_DOWN);
+				if (nav && count > 0) {
+					const int dir = (nav & KEY_UP) ? -1 : 1;
+					int idx = g_devices_cursor >= DEVICE_ROW0
+					              ? g_devices_cursor - DEVICE_ROW0 + dir
+					              : (dir > 0 ? 0 : count - 1);
+					if (idx < 0)
+						idx = 0;
+					if (idx >= count)
+						idx = count - 1;
+					g_devices_cursor = DEVICE_ROW0 + idx;
+				}
+
+				int chosen_idx = -1;
+				if ((keys_down & KEY_A) && g_devices_cursor >= DEVICE_ROW0) {
+					chosen_idx = g_devices_cursor - DEVICE_ROW0;
+				} else if (touch.clicked >= DEVICE_ROW0 &&
+				           touch.clicked < DEVICE_ROW0 + count) {
+					chosen_idx = touch.clicked - DEVICE_ROW0;
+				}
+
+				if (chosen_idx >= 0 && chosen_idx < count) {
+					const spotify_device *d = &dev_snap.devices.items[chosen_idx];
+					if (d->id[0]) {
+						tl_log("device: transfer to %s (%s)", d->name, d->id);
+						worker_transfer_device(d->id);
+						opt_set(&g_opt_play, 1);
+						g_view = VIEW_PLAYER;
+						g_devices_cursor = -1;
+					}
+				}
+			}
+		}
+
 		if (input_view == VIEW_LIST || input_view == VIEW_TRACKS) {
 			if (keys_down & KEY_SELECT) {
 				opt_set(&g_opt_play, !playing);
@@ -2038,6 +2093,11 @@ int main(int argc, char **argv)
 				}
 				case BTN_LYRICS:
 					lyrics_open_current(&snap);
+					break;
+				case BTN_DEVICES:
+					g_view = VIEW_DEVICES;
+					g_devices_cursor = -1;
+					worker_request_devices();
 					break;
 				default:
 					break;
@@ -2913,7 +2973,7 @@ int main(int argc, char **argv)
 		if (snap.fatal)
 			hint = snap.status_hint;
 		else if (snap.last_result == PLAYER_NO_DEVICE)
-			hint = "Start Spotify on a device";
+			hint = "Tap DEVICES or start Spotify on a device";
 
 		const screen_top_args ta = {
 			.buf        = textbuf,
@@ -2948,6 +3008,17 @@ int main(int argc, char **argv)
 			                           touch.down ? touch.press_id : -1);
 		} else if (g_view == VIEW_LYRICS) {
 			screen_lyrics_bottom_draw(&lyrics_args);
+		} else if (g_view == VIEW_DEVICES) {
+			worker_devices_snapshot dev_snap;
+			worker_get_devices(&dev_snap);
+			const screen_devices_args da = {
+				.buf = textbuf,
+				.tb = &g_tb,
+				.devices = &dev_snap,
+				.pressed_id = touch.down ? touch.press_id : -1,
+				.cursor_id = g_devices_cursor,
+			};
+			screen_devices_draw(&da);
 		} else if (g_view == VIEW_LIST) {
 			recent_list *rl;
 			playlist_list *pl;
