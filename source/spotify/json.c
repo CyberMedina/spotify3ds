@@ -186,17 +186,12 @@ json_doc *json_doc_parse(const char *json, size_t len, int *needed)
 	if (!json || !len)
 		return NULL;
 
-	/* One token per ~11 bytes is generous for Spotify's payloads; cap it so a
-	 * surprising body cannot ask for an unbounded allocation.
-	 *
-	 * The ceiling is sized for the largest response we ask for: recently-played
-	 * at limit=50 is ~147KB and 6830 tokens (measured), and that endpoint
-	 * ignores `fields=`, so it cannot be trimmed server-side. 32768 tokens is
-	 * 512KB transient on a device with 32MB - cheap next to the headroom it
-	 * buys for a heavier listening history than the one it was measured on. */
-	int cap = (int)(len / 8) + 64;
-	if (cap > 32768)
-		cap = 32768;
+	/* Start with an initial estimate: at least 1 token per 5 bytes + 64, minimum 1024. */
+	int cap = (int)(len / 5) + 64;
+	if (cap < 1024)
+		cap = 1024;
+	if (cap > 65536)
+		cap = 65536;
 
 	jsmntok_t *toks = malloc((size_t)cap * sizeof *toks);
 	if (!toks)
@@ -204,11 +199,29 @@ json_doc *json_doc_parse(const char *json, size_t len, int *needed)
 
 	jsmn_parser p;
 	jsmn_init(&p);
-	const int n = jsmn_parse(&p, json, len, toks, (unsigned)cap);
+	int n = jsmn_parse(&p, json, len, toks, (unsigned)cap);
+
+	/* If initial capacity wasn't enough (e.g. dense search responses with available_markets),
+	 * query the exact token count needed instead of failing. */
+	if (n == JSMN_ERROR_NOMEM) {
+		free(toks);
+		jsmn_init(&p);
+		int exact = jsmn_parse(&p, json, len, NULL, 0);
+		if (exact < 1 || exact > 65536) {
+			if (needed)
+				*needed = exact;
+			return NULL;
+		}
+		cap = exact;
+		toks = malloc((size_t)cap * sizeof *toks);
+		if (!toks)
+			return NULL;
+		jsmn_init(&p);
+		n = jsmn_parse(&p, json, len, toks, (unsigned)cap);
+	}
 
 	if (n < 1) {
-		/* NOMEM is the interesting one: the document is well-formed but larger
-		 * than the pool. Report the cap so the caller can say by how much. */
+		/* Report the cap so the caller can report by how much it fell short. */
 		if (needed)
 			*needed = (n == JSMN_ERROR_NOMEM) ? cap : n;
 		free(toks);
