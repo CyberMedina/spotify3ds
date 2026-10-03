@@ -209,7 +209,9 @@ static void encode_query_param(const char *input, char *out, size_t outlen)
 		    c == '~') {
 			out[at++] = (char)c;
 		} else if (c == ' ') {
-			out[at++] = '+';
+			out[at++] = '%';
+			out[at++] = '2';
+			out[at++] = '0';
 		} else {
 			out[at++] = '%';
 			out[at++] = hex[c >> 4];
@@ -232,7 +234,7 @@ static player_result fetch_search_network(const collection_item *collection,
 
 	char path[640];
 	snprintf(path, sizeof path,
-	         "/v1/search?q=%s&type=track&market=from_token&limit=%d&offset=%d",
+	         "/v1/search?q=%s&type=track&limit=%d&offset=%d",
 	         q_enc, TRACK_PAGE_MAX, offset);
 
 	http_response r;
@@ -242,8 +244,14 @@ static player_result fetch_search_network(const collection_item *collection,
 
 	if (r.status != 200 || !r.body || !r.body_len) {
 		char wait[32];
+		char msg[96] = "";
+		if (r.body && r.body_len > 0)
+			json_get_str(r.body, r.body_len, "error.message", msg, sizeof msg);
+
 		if (r.status == 429 && http_retry_after_str(r.retry_after, wait, sizeof wait))
 			snprintf(err, errlen, "search http %d - retry after %s", r.status, wait);
+		else if (msg[0])
+			snprintf(err, errlen, "search %d: %s", r.status, msg);
 		else
 			snprintf(err, errlen, "search http %d", r.status);
 		http_free(&r);
